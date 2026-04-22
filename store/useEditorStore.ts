@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 
 export type EditMode = 'object' | 'vertex' | 'edge' | 'face';
-export type ObjectType = 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'imported' | 'terrain' | 'torusKnot';
+export type ObjectType = 'box' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'imported' | 'terrain' | 'torusKnot' | 'tree';
 export type MaterialType = 'solid' | 'checker' | 'noise';
 
 export interface SceneObject {
@@ -68,6 +68,21 @@ interface EditorState {
   setSnappingEnabled: (enabled: boolean) => void;
   setSnapIncrement: (increment: number) => void;
   setVertexSnappingEnabled: (enabled: boolean) => void;
+  
+  gridColor: string;
+  setGridColor: (color: string) => void;
+  cameraResetTrigger: number;
+  triggerCameraReset: () => void;
+
+  sceneStats: { vertices: number; edges: number; faces: number; objects: number; selectedVertices: number; selectedEdges: number; selectedFaces: number; } | null;
+  setSceneStats: (stats: { vertices: number; edges: number; faces: number; objects: number; selectedVertices: number; selectedEdges: number; selectedFaces: number; } | null) => void;
+
+  past: SceneObject[][];
+  future: SceneObject[][];
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+
   addObject: (type: ObjectType) => void;
   addImportedObject: (model: any, name: string) => void;
   updateObject: (id: string, updates: Partial<SceneObject>) => void;
@@ -76,6 +91,16 @@ interface EditorState {
   clearScene: () => void;
   clearAllSubSelections: () => void;
 }
+
+const cloneObjects = (objs: SceneObject[]) => objs.map(o => ({
+  ...o,
+  position: [...o.position] as [number, number, number],
+  rotation: [...o.rotation] as [number, number, number],
+  scale: [...o.scale] as [number, number, number],
+  params: o.params ? JSON.parse(JSON.stringify(o.params)) : o.params,
+  materialParams: o.materialParams ? JSON.parse(JSON.stringify(o.materialParams)) : o.materialParams,
+  vertexOffsets: o.vertexOffsets ? JSON.parse(JSON.stringify(o.vertexOffsets)) : o.vertexOffsets 
+}));
 
 const DEFAULT_COLORS: Record<string, string> = {
   box: '#3b82f6', // blue
@@ -109,7 +134,44 @@ export const useEditorStore = create<EditorState>((set) => ({
   snappingEnabled: true,
   snapIncrement: 0.1,
   vertexSnappingEnabled: true,
+  gridColor: '#404040',
+  cameraResetTrigger: 0,
+  sceneStats: null,
+  past: [],
+  future: [],
 
+  pushHistory: () => set((state) => {
+    // Check if we hit a limit to prevent memory bloat
+    const newPast = [...state.past, cloneObjects(state.objects)].slice(-50);
+    return {
+      past: newPast,
+      future: []
+    };
+  }),
+
+  undo: () => set((state) => {
+    if (state.past.length === 0) return {};
+    const previous = state.past[state.past.length - 1];
+    const newPast = state.past.slice(0, state.past.length - 1);
+    return {
+      past: newPast,
+      future: [cloneObjects(state.objects), ...state.future],
+      objects: cloneObjects(previous)
+    };
+  }),
+
+  redo: () => set((state) => {
+    if (state.future.length === 0) return {};
+    const next = state.future[0];
+    const newFuture = state.future.slice(1);
+    return {
+      past: [...state.past, cloneObjects(state.objects)],
+      future: newFuture,
+      objects: cloneObjects(next)
+    };
+  }),
+
+  setSceneStats: (stats) => set({ sceneStats: stats }),
   setTransformMode: (mode) => set({ transformMode: mode }),
   setEditMode: (mode) => set({ 
     editMode: mode, 
@@ -254,6 +316,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   setSnappingEnabled: (enabled) => set({ snappingEnabled: enabled }),
   setSnapIncrement: (increment) => set({ snapIncrement: increment }),
   setVertexSnappingEnabled: (enabled) => set({ vertexSnappingEnabled: enabled }),
+  setGridColor: (color) => set({ gridColor: color }),
+  triggerCameraReset: () => set((state) => ({ cameraResetTrigger: state.cameraResetTrigger + 1 })),
 
   addObject: (type) =>
     set((state) => {
@@ -264,6 +328,33 @@ export const useEditorStore = create<EditorState>((set) => ({
         params = { width: 5, height: 5, segments: 32, amplitude: 1, scale: 2 };
       } else if (type === 'torusKnot') {
         params = { radius: 0.5, tube: 0.15, p: 2, q: 3 };
+      } else if (type === 'tree') {
+        params = { 
+          levels: 3, 
+          height: 2, 
+          branchFactor: 2, 
+          angle: 0.5, 
+          seed: Math.floor(Math.random() * 10000), 
+          foliage: true, 
+          foliageSize: 0.5,
+          foliageDensity: 1.0,
+          foliageOffset: 0.0,
+          foliageType: 'quad',
+          foliageFruit: false,
+          foliageSnow: false,
+          foliageAnimate: false,
+          gnarl: 0.2,
+          windSpeed: 1.0,
+          distribution: 'random',
+          count: 1,
+          spread: 2.0,
+          preset: 'default',
+          branchColor: '#4d2d11',
+          foliageColor: '#2d5a27',
+          trunkThickness: 0.05,
+          taper: 0.7,
+          randomness: 0.2
+        };
       }
 
       const randomColor = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
@@ -284,6 +375,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         reflectivity: 0.5,
       };
       return {
+        past: [...state.past, cloneObjects(state.objects)].slice(-50),
+        future: [],
         objects: [...state.objects, newObj],
         selectedId: newObj.id,
       };
@@ -307,6 +400,8 @@ export const useEditorStore = create<EditorState>((set) => ({
         reflectivity: 0.5,
       };
       return {
+        past: [...state.past, cloneObjects(state.objects)].slice(-50),
+        future: [],
         objects: [...state.objects, newObj],
         selectedId: newObj.id,
       };
@@ -321,6 +416,8 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   removeObject: (id) =>
     set((state) => ({
+      past: [...state.past, cloneObjects(state.objects)].slice(-50),
+      future: [],
       objects: state.objects.filter((obj) => obj.id !== id),
       selectedId: state.selectedId === id ? null : state.selectedId,
     })),
@@ -329,14 +426,16 @@ export const useEditorStore = create<EditorState>((set) => ({
     selectedId: id, 
   })),
   
-  clearScene: () => set({ 
+  clearScene: () => set((state) => ({ 
+    past: [...state.past, cloneObjects(state.objects)].slice(-50),
+    future: [],
     objects: [], 
     selectedId: null, 
     selectedVertexIndices: {}, 
     selectedEdgeIndices: {},
     selectedFaceIndices: {},
     editMode: 'object' 
-  }),
+  })),
 
   clearAllSubSelections: () => set({
     selectedVertexIndices: {},

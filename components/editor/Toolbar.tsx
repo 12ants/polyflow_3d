@@ -1,7 +1,7 @@
 'use client';
 
 import { useEditorStore, ObjectType } from '@/store/useEditorStore';
-import { Box, Circle, Cylinder, Triangle, CircleDashed, Mountain, Infinity as InfinityIcon, Move, MousePointer2, Lasso, Square, Hash, Magnet } from 'lucide-react';
+import { Box, Circle, Cylinder, Triangle, CircleDashed, Mountain, Infinity as InfinityIcon, Move, MousePointer2, Lasso, Square, Hash, Magnet, TreeDeciduous } from 'lucide-react';
 
 export function Toolbar() {
   const { 
@@ -108,6 +108,7 @@ export function Toolbar() {
         <div className="grid grid-cols-2 gap-2">
           <ToolbarButton icon={<Mountain size={16} strokeWidth={1.5} />} label="Terrain" onClick={() => addObject('terrain')} />
           <ToolbarButton icon={<InfinityIcon size={16} strokeWidth={1.5} />} label="Knot" onClick={() => addObject('torusKnot')} />
+          <ToolbarButton icon={<TreeDeciduous size={16} strokeWidth={1.5} />} label="Tree" onClick={() => addObject('tree')} />
         </div>
       </div>
     </div>

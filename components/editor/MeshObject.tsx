@@ -52,7 +52,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
 
   // Update unique edges when geometry changes
   useEffect(() => {
-    if (!geom) {
+    if (!geom || !geom.attributes || !geom.attributes.position) {
       uniqueEdgesRef.current = [];
       return;
     }
@@ -84,7 +84,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
 
   // Selection/Soft selection weights
   const influenceWeights = useMemo(() => {
-    if (!selectedVertexIndices || selectedVertexIndices.length === 0 || !geom) return null;
+    if (!selectedVertexIndices || selectedVertexIndices.length === 0 || !geom || !geom.attributes || !geom.attributes.position) return null;
     
     const weights: Record<number, number> = {};
     const pos = geom.attributes.position;
@@ -97,9 +97,11 @@ export function MeshObject({ object }: { object: SceneObject }) {
 
     if (!softSelectionEnabled) return weights;
 
-    const selectedPoints = selectedVertexIndices.map(idx => {
-      return new THREE.Vector3(origPos.getX(idx), origPos.getY(idx), origPos.getZ(idx));
-    });
+    const selectedPoints = selectedVertexIndices
+      .filter(idx => idx < origPos.count)
+      .map(idx => {
+        return new THREE.Vector3(origPos.getX(idx), origPos.getY(idx), origPos.getZ(idx));
+      });
 
     const v = new THREE.Vector3();
     for (let i = 0; i < pos.count; i++) {
@@ -121,11 +123,12 @@ export function MeshObject({ object }: { object: SceneObject }) {
     return weights;
   }, [softSelectionEnabled, softSelectionRadius, selectedVertexIndices, geom]);
 
-  useFrame(() => {
+  useFrame((state) => {
     // Check for isSelecting transition from true to false
-    if (wasSelecting.current && !isSelecting && (editMode === 'vertex' || editMode === 'edge' || editMode === 'face') && isSelected && geom) {
+    if (wasSelecting.current && !isSelecting && (editMode === 'vertex' || editMode === 'edge' || editMode === 'face') && isSelected && geom && geom.attributes && geom.attributes.position) {
         const canSelect = selectionShape === 'box' ? !!selectionBox : !!lassoPath;
         if (!canSelect) return;
+
 
         const pos = geom.attributes.position;
         const newSelectedVertexIndices: number[] = [];
@@ -221,7 +224,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
 
     if (meshRef.current?.geometry && meshRef.current.geometry !== geom) {
       const g = meshRef.current.geometry;
-      if (!g.userData.originalPosition) {
+      if (!g.userData.originalPosition && g.attributes && g.attributes.position) {
         g.userData.originalPosition = g.attributes.position.clone();
       }
       setGeom(g);
@@ -230,16 +233,18 @@ export function MeshObject({ object }: { object: SceneObject }) {
 
   // Apply geometry offsets
   useEffect(() => {
-    if (!geom || !geom.userData.originalPosition) return;
+    if (!geom || !geom.attributes || !geom.attributes.position || !geom.userData.originalPosition) return;
     const pos = geom.attributes.position;
     const orig = geom.userData.originalPosition;
 
-    pos.array.set(orig.array);
+    if (pos.array.length === (orig as THREE.BufferAttribute).array.length) {
+      pos.array.set((orig as THREE.BufferAttribute).array as any);
+    }
 
     if (object.vertexOffsets) {
       Object.entries(object.vertexOffsets).forEach(([idxStr, offset]) => {
         const i = parseInt(idxStr, 10);
-        if (i * 3 + 2 < pos.array.length) {
+        if (i < pos.count && i * 3 + 2 < pos.array.length) {
           pos.array[i * 3] += offset[0];
           pos.array[i * 3 + 1] += offset[1];
           pos.array[i * 3 + 2] += offset[2];
@@ -252,26 +257,30 @@ export function MeshObject({ object }: { object: SceneObject }) {
   }, [geom, object.vertexOffsets, object.params]);
 
   useEffect(() => {
-    if ((editMode === 'vertex' || editMode === 'edge' || editMode === 'face') && isSelected && selectedVertexIndices && selectedVertexIndices.length > 0 && vertexControlRef.current && geom?.userData.originalPosition) {
+    if ((editMode === 'vertex' || editMode === 'edge' || editMode === 'face') && isSelected && selectedVertexIndices && selectedVertexIndices.length > 0 && vertexControlRef.current && geom?.attributes?.position && geom?.userData.originalPosition) {
        const pos = geom.attributes.position;
        const orig = geom.userData.originalPosition;
        
-       // Calculate median position including existing project offsets
-       const avgPos = new THREE.Vector3(0, 0, 0);
-       selectedVertexIndices.forEach(idx => {
-         const off = (object.vertexOffsets && object.vertexOffsets[idx]) ? object.vertexOffsets[idx] : [0,0,0];
-         avgPos.x += orig.getX(idx) + off[0];
-         avgPos.y += orig.getY(idx) + off[1];
-         avgPos.z += orig.getZ(idx) + off[2];
-       });
-       avgPos.divideScalar(selectedVertexIndices.length);
+        // Calculate median position including existing project offsets
+        let count = 0;
+        const avgPos = new THREE.Vector3(0, 0, 0);
+        selectedVertexIndices.forEach(idx => {
+          if (idx < (orig as THREE.BufferAttribute).count) {
+            const off = (object.vertexOffsets && object.vertexOffsets[idx]) ? object.vertexOffsets[idx] : [0,0,0];
+            avgPos.x += (orig as THREE.BufferAttribute).getX(idx) + off[0];
+            avgPos.y += (orig as THREE.BufferAttribute).getY(idx) + off[1];
+            avgPos.z += (orig as THREE.BufferAttribute).getZ(idx) + off[2];
+            count++;
+          }
+        });
+        if (count > 0) avgPos.divideScalar(count);
        
        vertexControlRef.current.position.copy(avgPos);
     }
   }, [selectedVertexIndices, editMode, isSelected, geom, object.vertexOffsets]);
 
   const handleTransformChange = () => {
-    if (!geom || !geom.userData.originalPosition || !selectedVertexIndices || !vertexControlRef.current) return;
+    if (!geom || !geom.attributes || !geom.attributes.position || !geom.userData.originalPosition || !selectedVertexIndices || !vertexControlRef.current) return;
     const tempPos = vertexControlRef.current.position;
     const pos = geom.attributes.position;
     const orig = geom.userData.originalPosition;
@@ -284,13 +293,17 @@ export function MeshObject({ object }: { object: SceneObject }) {
     // Calculate delta from current gizmo position vs starting median position
     // Since we re-sync on every state update, the gizmo position effectively tracks displacement.
     // For simplicity during live drag, we calculate displacement from the median of original positions.
+    let count = 0;
     const avgOrigPos = new THREE.Vector3(0, 0, 0);
     selectedVertexIndices.forEach(idx => {
-      avgOrigPos.x += orig.getX(idx);
-      avgOrigPos.y += orig.getY(idx);
-      avgOrigPos.z += orig.getZ(idx);
+      if (idx < (orig as THREE.BufferAttribute).count) {
+        avgOrigPos.x += (orig as THREE.BufferAttribute).getX(idx);
+        avgOrigPos.y += (orig as THREE.BufferAttribute).getY(idx);
+        avgOrigPos.z += (orig as THREE.BufferAttribute).getZ(idx);
+        count++;
+      }
     });
-    avgOrigPos.divideScalar(selectedVertexIndices.length);
+    if (count > 0) avgOrigPos.divideScalar(count);
 
     const offsetX = tempPos.x - avgOrigPos.x;
     const offsetY = tempPos.y - avgOrigPos.y;
@@ -371,10 +384,15 @@ export function MeshObject({ object }: { object: SceneObject }) {
     }
 
     // Layer base + other offsets without writing to Zustand immediately
-    pos.array.set(orig.array);
+    if (pos.array.length === (orig as THREE.BufferAttribute).array.length) {
+      pos.array.set((orig as THREE.BufferAttribute).array as any);
+    }
+
     if (object.vertexOffsets) {
       Object.entries(object.vertexOffsets).forEach(([idxStr, off]) => {
         const i = parseInt(idxStr, 10);
+        if (i >= pos.count) return;
+        
         // If soft selection is enabled, we'll re-apply all offsets but scaled if needed.
         // Actually, for real-time dragging, we just want to know how the CURRENT transformation affects everything.
         const isCurrentlyAffected = softSelectionEnabled ? (influenceWeights && (influenceWeights[i] !== undefined)) : selectedVertexIndices.includes(i);
@@ -391,15 +409,19 @@ export function MeshObject({ object }: { object: SceneObject }) {
     if (softSelectionEnabled && influenceWeights) {
       Object.entries(influenceWeights).forEach(([idxStr, weight]) => {
         const i = parseInt(idxStr, 10);
-        pos.array[i * 3] += finalOffsetX * weight;
-        pos.array[i * 3 + 1] += finalOffsetY * weight;
-        pos.array[i * 3 + 2] += finalOffsetZ * weight;
+        if (i < pos.count) {
+          pos.array[i * 3] += finalOffsetX * weight;
+          pos.array[i * 3 + 1] += finalOffsetY * weight;
+          pos.array[i * 3 + 2] += finalOffsetZ * weight;
+        }
       });
     } else {
       selectedVertexIndices.forEach((i) => {
-        pos.array[i * 3] += finalOffsetX;
-        pos.array[i * 3 + 1] += finalOffsetY;
-        pos.array[i * 3 + 2] += finalOffsetZ;
+        if (i < pos.count) {
+          pos.array[i * 3] += finalOffsetX;
+          pos.array[i * 3 + 1] += finalOffsetY;
+          pos.array[i * 3 + 2] += finalOffsetZ;
+        }
       });
     }
 
@@ -407,18 +429,22 @@ export function MeshObject({ object }: { object: SceneObject }) {
   };
 
   const handleTransformMouseUp = () => {
-    if (!selectedVertexIndices || !vertexControlRef.current || !geom) return;
+    if (!selectedVertexIndices || !vertexControlRef.current || !geom || !geom.attributes || !geom.attributes.position) return;
     const tempPos = vertexControlRef.current.position;
     const pos = geom.attributes.position;
     const orig = geom.userData.originalPosition;
     
+    let count = 0;
     const avgOrigPos = new THREE.Vector3(0, 0, 0);
     selectedVertexIndices.forEach(idx => {
-      avgOrigPos.x += orig.getX(idx);
-      avgOrigPos.y += orig.getY(idx);
-      avgOrigPos.z += orig.getZ(idx);
+      if (idx < (orig as THREE.BufferAttribute).count) {
+        avgOrigPos.x += (orig as THREE.BufferAttribute).getX(idx);
+        avgOrigPos.y += (orig as THREE.BufferAttribute).getY(idx);
+        avgOrigPos.z += (orig as THREE.BufferAttribute).getZ(idx);
+        count++;
+      }
     });
-    avgOrigPos.divideScalar(selectedVertexIndices.length);
+    if (count > 0) avgOrigPos.divideScalar(count);
 
     let offsetX = tempPos.x - avgOrigPos.x;
     let offsetY = tempPos.y - avgOrigPos.y;
@@ -439,7 +465,9 @@ export function MeshObject({ object }: { object: SceneObject }) {
       });
     } else {
       selectedVertexIndices.forEach(i => {
-        newOffsets[i] = [offsetX, offsetY, offsetZ];
+        if (i < pos.count) {
+          newOffsets[i] = [offsetX, offsetY, offsetZ];
+        }
       });
     }
     
@@ -453,6 +481,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
         <TransformControls
           object={meshRef.current as any}
           mode={transformMode}
+          onMouseDown={() => useEditorStore.getState().pushHistory()}
           onMouseUp={(e) => {
             if (meshRef.current) {
               updateObject(object.id, {
@@ -473,6 +502,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
         <TransformControls
           object={vertexControlRef.current as any}
           mode={transformMode}
+          onMouseDown={() => useEditorStore.getState().pushHistory()}
           onChange={handleTransformChange}
           onMouseUp={handleTransformMouseUp}
         />
@@ -563,7 +593,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
             }
           } else if (editMode === 'face') {
              const faceHit = e.intersections.find((i: any) => i.object === meshRef.current && i.faceIndex !== undefined);
-             if (faceHit && faceHit.faceIndex !== undefined) {
+             if (faceHit && typeof faceHit.faceIndex === 'number') {
                 setSelectionMode(e.shiftKey ? 'toggle' : 'replace');
                 
                 // Get vertices of this face to add to selectedVertexIndices
@@ -604,7 +634,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
           }
         }}
         onPointerMove={(e) => {
-          if (editMode === 'face' && e.faceIndex !== undefined) {
+          if (editMode === 'face' && typeof e.faceIndex === 'number') {
              setHoveredFace({ objectId: object.id, index: e.faceIndex });
           }
         }}
@@ -612,7 +642,7 @@ export function MeshObject({ object }: { object: SceneObject }) {
            if (editMode === 'face') setHoveredFace(null);
         }}
       >
-        <Geometry type={object.type} params={object.params} customModel={object.customModel} />
+        <Geometry key={JSON.stringify(object.params || {})} type={object.type} params={object.params} customModel={object.customModel} />
         {object.type !== 'imported' && (
           <ProceduralMaterial object={object} />
         )}
@@ -682,7 +712,7 @@ function Faces({
       highlightIndices.push(hoveredFace * 3, hoveredFace * 3 + 1, hoveredFace * 3 + 2);
     }
 
-    if (highlightIndices.length === 0) return null;
+    if (highlightIndices.length === 0 || !geometry.attributes || !geometry.attributes.position) return null;
 
     const g = new THREE.BufferGeometry();
     const vertices = new Float32Array(highlightIndices.length * 3);
@@ -898,14 +928,76 @@ function ProceduralMaterial({ object }: { object: SceneObject }) {
     return null;
   }, [object.materialType, object.materialParams?.scale, object.id]);
 
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uWindIntensity: { value: object.type === 'tree' && object.params?.foliageAnimate ? (object.params?.windSpeed || 1.0) : 0.0 }
+  }), [object.type, object.params?.foliageAnimate, object.params?.windSpeed]);
+
+  useFrame((state) => {
+    if (uniforms.uWindIntensity.value > 0) {
+       uniforms.uTime.value = state.clock.getElapsedTime();
+    }
+  });
+
+  const onBeforeCompile = useMemo(() => (shader: any) => {
+    if (object.type !== 'tree' || !object.params?.foliageAnimate) return;
+    
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.uniforms.uWindIntensity = uniforms.uWindIntensity;
+    
+    shader.vertexShader = `
+      uniform float uTime;
+      uniform float uWindIntensity;
+      ${shader.vertexShader}
+    `;
+    
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `
+      #include <begin_vertex>
+      
+      if (uWindIntensity > 0.0) {
+        // Evaluate tree vertex height (starts around 0)
+        float h = max(0.0, transformed.y);
+        
+        // Sway parameters. We use the instance/model matrix to give each tree a slightly different wind phase
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        float localPhaseOffset = worldPosition.x * 0.1 + worldPosition.z * 0.1;
+        
+        float speed = uTime * 1.5 + localPhaseOffset;
+        
+        // Primary bend (affects trunk more linearly)
+        // We use pow(h, 1.5) so the bend curve is gentle at base and pronounced at top
+        float bendCurve = pow(h, 1.2) * 0.03;
+        float swayX = sin(speed) * bendCurve * uWindIntensity;
+        float swayZ = cos(speed * 0.8) * bendCurve * uWindIntensity;
+        
+        // Secondary flutter (branch & foliage ripple)
+        // Offset phase based on spatial position to make branches sway independently
+        float flutterX = sin(speed * 2.5 + transformed.x * 3.0 + transformed.y * 2.0) * 0.02 * h * uWindIntensity;
+        float flutterZ = cos(speed * 3.0 + transformed.z * 3.0 + transformed.y * 2.0) * 0.02 * h * uWindIntensity;
+        
+        transformed.x += swayX + flutterX;
+        transformed.z += swayZ + flutterZ;
+        
+        // Slight vertical dipping to offset horizontal stretch
+        transformed.y -= (abs(swayX) + abs(swayZ)) * 0.2;
+      }
+      `
+    );
+  }, [uniforms, object.type, object.params?.foliageAnimate]);
+
   return (
     <meshPhysicalMaterial 
-      color={object.color} 
+      color={object.type === 'tree' ? '#ffffff' : object.color} 
       map={texture} 
       roughness={object.roughness}
       metalness={object.metalness}
       reflectivity={object.reflectivity}
       envMapIntensity={1}
+      vertexColors={object.type === 'tree'}
+      onBeforeCompile={onBeforeCompile}
+      customProgramCacheKey={() => object.type + '_' + (object.params?.foliageAnimate ? 'animate' : 'static')}
     />
   );
 }
@@ -943,6 +1035,8 @@ function Geometry({ type, params, customModel }: { type: SceneObject['type'], pa
           ]} 
         />
       );
+    case 'tree':
+      return <TreeGeometry params={params} />;
     default:
       return <boxGeometry args={[1, 1, 1]} />;
   }
@@ -980,4 +1074,517 @@ function TerrainGeometry({ params }: { params: any }) {
       ]} 
     />
   );
+}
+
+function TreeGeometry({ params }: { params: any }) {
+  const { 
+    levels = 3, 
+    height = 2, 
+    branchFactor = 2, 
+    angle = 0.5, 
+    seed = 123, 
+    foliage = true, 
+    foliageSize = 0.5,
+    foliageDensity = 1.0,
+    foliageOffset = 0.0,
+    foliageCross = false,
+    foliageJitter = 0.2,
+    foliageType = 'quad',
+    foliageFruit = false,
+    foliageSnow = false,
+    foliageAnimate = false,
+    gnarl = 0.2,
+    distribution = 'random',
+    count = 1,
+    spread = 2.0,
+    branchColor = '#4d2d11',
+    foliageColor = '#2d5a27',
+    trunkThickness = 0.05,
+    taper = 0.7,
+    randomness = 0.2
+  } = params || {};
+
+  const bCol = useMemo(() => new THREE.Color(branchColor), [branchColor]);
+  const fCol = useMemo(() => new THREE.Color(foliageColor), [foliageColor]);
+
+  const geometryData = useMemo(() => {
+    const vertices: number[] = [];
+    const indices: number[] = [];
+    const normals: number[] = [];
+    const colors: number[] = [];
+
+    // Simple deterministic random generator
+    let currentSeed = seed;
+    const rand = () => {
+      currentSeed = (currentSeed * 16807) % 2147483647;
+      return (currentSeed - 1) / 2147483646;
+    };
+
+    const addBranch = (
+      start: THREE.Vector3,
+      direction: THREE.Vector3,
+      length: number,
+      thickness: number,
+      currentLevel: number
+    ) => {
+      // Add Gnarl (jitter the direction slightly)
+      const gnarledDir = direction.clone();
+      if (gnarl > 0) {
+        gnarledDir.add(new THREE.Vector3(
+          (rand() - 0.5) * gnarl * 2,
+          (rand() - 0.5) * gnarl,
+          (rand() - 0.5) * gnarl * 2
+        )).normalize();
+      }
+
+      const segments = Math.max(3, Math.floor(8 / (levels - currentLevel + 1))); 
+      const startIdx = vertices.length / 3;
+      const end = start.clone().add(gnarledDir.clone().multiplyScalar(length));
+
+      // Ambient Occlusion Factor (darken near base/inside)
+      const aoFactor = currentLevel / (levels + 1);
+      const levelCol = bCol.clone().multiplyScalar(0.4 + aoFactor * 0.6);
+
+      const axis = gnarledDir.clone().normalize();
+      const perp1 = new THREE.Vector3(1, 0, 0);
+      if (Math.abs(axis.dot(perp1)) > 0.9) perp1.set(0, 1, 0);
+      const perp2 = new THREE.Vector3().crossVectors(axis, perp1).normalize();
+      perp1.crossVectors(perp2, axis).normalize();
+
+      for (let i = 0; i <= segments; i++) {
+        const theta = (i / segments) * Math.PI * 2;
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+
+        const v1 = start.clone().add(perp1.clone().multiplyScalar(cos * thickness)).add(perp2.clone().multiplyScalar(sin * thickness));
+        vertices.push(v1.x, v1.y, v1.z);
+        const n1 = v1.clone().sub(start).normalize();
+        normals.push(n1.x, n1.y, n1.z);
+        colors.push(levelCol.r, levelCol.g, levelCol.b);
+
+        const v2 = end.clone().add(perp1.clone().multiplyScalar(cos * thickness * taper)).add(perp2.clone().multiplyScalar(sin * thickness * taper));
+        vertices.push(v2.x, v2.y, v2.z);
+        const n2 = v2.clone().sub(end).normalize();
+        normals.push(n2.x, n2.y, n2.z);
+        colors.push(levelCol.r, levelCol.g, levelCol.b);
+
+        if (i < segments) {
+          const base = startIdx + i * 2;
+          indices.push(base, base + 1, base + 2);
+          indices.push(base + 1, base + 3, base + 2);
+        }
+      }
+
+      // Add roots at base
+      if (currentLevel === levels && thickness > 0.1) {
+        for (let r = 0; r < 4; r++) {
+          const rootAngle = (r / 4) * Math.PI * 2 + rand() * 0.5;
+          const rootDir = new THREE.Vector3(Math.cos(rootAngle), -0.2, Math.sin(rootAngle)).normalize();
+          addBranch(start, rootDir, length * 0.4, thickness * 0.7, 1); // Small single level roots
+        }
+      }
+
+      if (currentLevel <= 1) {
+        if (foliage) {
+          const baseLeafCount = 4;
+          const leafCount = Math.floor(baseLeafCount * foliageDensity);
+          
+          for (let l = 0; l < leafCount; l++) {
+            const leafIdx = vertices.length / 3;
+            const size = foliageSize * (0.8 + rand() * 0.4);
+            
+            const lDir = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize();
+            const lPerp = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).cross(lDir).normalize();
+            const lSide = new THREE.Vector3().crossVectors(lDir, lPerp).normalize();
+            
+            // Apply foliage offset (shifting leaves along the branch direction or randomly)
+            const leafPos = end.clone().add(gnarledDir.clone().multiplyScalar((rand() - 0.5) * foliageOffset));
+            
+            // Foliage AO: darker inside
+            const distFromTop = 1.0 - (currentLevel / levels);
+            const lColAO = fCol.clone().multiplyScalar(0.7 + distFromTop * 0.3);
+            const jitterCol = lColAO.clone().multiplyScalar(1.0 - foliageJitter + rand() * (foliageJitter * 2));
+            
+            if (foliageType === 'cloud') {
+              // Generate a more detailed cloud shape using multiple smaller puffs
+              const subPuffCount = 3 + Math.floor(rand() * 3); // 3 to 5 sub-puffs per cluster
+              const clusterBound = size * 1.2;
+              
+              for (let p = 0; p < subPuffCount; p++) {
+                const puffIdx = vertices.length / 3;
+                
+                // Offset each sub-puff randomly within a small bounds
+                const pOffset = new THREE.Vector3(
+                  (rand() - 0.5) * clusterBound,
+                  (rand() - 0.5) * clusterBound,
+                  (rand() - 0.5) * clusterBound
+                );
+                
+                // Vary sub-puff size
+                const pSize = size * (0.6 + rand() * 1.0);
+                
+                // 6 vertices of an octahedron
+                const pvs = [
+                  new THREE.Vector3(0, pSize, 0), new THREE.Vector3(0, -pSize, 0),
+                  new THREE.Vector3(pSize, 0, 0), new THREE.Vector3(-pSize, 0, 0),
+                  new THREE.Vector3(0, 0, pSize), new THREE.Vector3(0, 0, -pSize)
+                ];
+                
+                pvs.forEach(v => {
+                  const finalPos = leafPos.clone().add(pOffset).add(v);
+                  vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                  const n = v.clone().normalize();
+                  normals.push(n.x, n.y, n.z);
+                  colors.push(jitterCol.r, jitterCol.g, jitterCol.b);
+                });
+                
+                const faces = [
+                  0, 2, 4,  0, 4, 3,  0, 3, 5,  0, 5, 2,
+                  1, 4, 2,  1, 3, 4,  1, 5, 3,  1, 2, 5
+                ];
+                faces.forEach(f => indices.push(puffIdx + f));
+              }
+
+              // Add fruit if enabled (one or two fruits per cluster is enough for detail)
+              if (foliageFruit && rand() > 0.6) {
+                const fruitCount = 1 + Math.floor(rand() * 2);
+                for (let fc = 0; fc < fruitCount; fc++) {
+                  const fruitIdx = vertices.length / 3;
+                  const fruitSize = size * 0.4;
+                  const fruitColor = new THREE.Color(0xff2211);
+                  const fOffset = new THREE.Vector3((rand() - 0.5) * size, -size * 0.5, (rand() - 0.5) * size);
+                  
+                  const fvs = [
+                    new THREE.Vector3(0, fruitSize, 0), new THREE.Vector3(0, -fruitSize, 0),
+                    new THREE.Vector3(fruitSize, 0, 0), new THREE.Vector3(-fruitSize, 0, 0),
+                    new THREE.Vector3(0, 0, fruitSize), new THREE.Vector3(0, 0, -fruitSize)
+                  ].map(v => v.add(fOffset));
+                  
+                  fvs.forEach(v => {
+                    const finalPos = leafPos.clone().add(v);
+                    vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                    normals.push(v.x, v.y, v.z);
+                    colors.push(fruitColor.r, fruitColor.g, fruitColor.b);
+                  });
+                  const faces = [
+                    0, 2, 4,  0, 4, 3,  0, 3, 5,  0, 5, 2,
+                    1, 4, 2,  1, 3, 4,  1, 5, 3,  1, 2, 5
+                  ];
+                  faces.forEach(f => indices.push(fruitIdx + f));
+                }
+              }
+
+              // Add snow if enabled (a larger cap for the cluster)
+              if (foliageSnow) {
+                const snowIdx = vertices.length / 3;
+                const snowSize = size * 1.8;
+                const snowColor = new THREE.Color(0xffffff);
+                
+                const svs = [
+                  new THREE.Vector3(0, snowSize, 0), new THREE.Vector3(0, 0, 0),
+                  new THREE.Vector3(snowSize, 0, 0), new THREE.Vector3(-snowSize, 0, 0),
+                  new THREE.Vector3(0, 0, snowSize), new THREE.Vector3(0, 0, -snowSize)
+                ].map(v => v.add(new THREE.Vector3(0, size * 1.2, 0)));
+                
+                svs.forEach(v => {
+                  const finalPos = leafPos.clone().add(v);
+                  vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                  normals.push(0, 1, 0);
+                  colors.push(snowColor.r, snowColor.g, snowColor.b);
+                });
+                const faces = [
+                  0, 2, 4,  0, 4, 3,  0, 3, 5,  0, 5, 2,
+                  1, 4, 2,  1, 3, 4,  1, 5, 3,  1, 2, 5
+                ];
+                faces.forEach(f => indices.push(snowIdx + f));
+              }
+
+            } else if (foliageType === 'realistic') {
+              // Generate realistic bushy foliage using icosahedrons clustered together
+              const subPuffCount = 2 + Math.floor(rand() * 3);
+              const clusterBound = size * 0.8;
+              
+              const phi = (1.0 + Math.sqrt(5.0)) / 2.0;
+              const icoVerts = [
+                [-1,  phi,  0], [ 1,  phi,  0], [-1, -phi,  0], [ 1, -phi,  0],
+                [ 0, -1,  phi], [ 0,  1,  phi], [ 0, -1, -phi], [ 0,  1, -phi],
+                [ phi,  0, -1], [ phi,  0,  1], [-phi,  0, -1], [-phi,  0,  1]
+              ].map(v => new THREE.Vector3(v[0], v[1], v[2]).normalize());
+
+              const icoFaces = [
+                [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+                [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+                [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+                [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+              ];
+              
+              for (let p = 0; p < subPuffCount; p++) {
+                const puffIdx = vertices.length / 3;
+                
+                const pOffset = new THREE.Vector3(
+                  (rand() - 0.5) * clusterBound,
+                  (rand() - 0.5) * clusterBound,
+                  (rand() - 0.5) * clusterBound
+                );
+                
+                const pSize = size * (0.8 + rand() * 0.5);
+                
+                // Add vertices
+                icoVerts.forEach(v => {
+                  const finalPos = leafPos.clone().add(pOffset).add(v.clone().multiplyScalar(pSize));
+                  vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                  normals.push(v.x, v.y, v.z);
+                  colors.push(jitterCol.r, jitterCol.g, jitterCol.b);
+                });
+                
+                // Add faces
+                icoFaces.forEach(f => {
+                  indices.push(puffIdx + f[0], puffIdx + f[1], puffIdx + f[2]);
+                });
+              }
+              
+              // Fruit
+              if (foliageFruit && rand() > 0.6) {
+                const fruitCount = 1 + Math.floor(rand() * 2);
+                for (let fc = 0; fc < fruitCount; fc++) {
+                  const fruitIdx = vertices.length / 3;
+                  const fruitSize = size * 0.3;
+                  const fruitColor = new THREE.Color(0xff2211);
+                  const fOffset = new THREE.Vector3((rand() - 0.5) * size, -size * 0.5, (rand() - 0.5) * size);
+                  
+                  icoVerts.forEach(v => {
+                    const finalPos = leafPos.clone().add(fOffset).add(v.clone().multiplyScalar(fruitSize));
+                    vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                    normals.push(v.x, v.y, v.z);
+                    colors.push(fruitColor.r, fruitColor.g, fruitColor.b);
+                  });
+                  icoFaces.forEach(f => {
+                    indices.push(fruitIdx + f[0], fruitIdx + f[1], fruitIdx + f[2]);
+                  });
+                }
+              }
+
+            } else if (foliageType === 'box') {
+              // Generate clean, voxel/chunky foliage clusters
+              const subBoxCount = 2 + Math.floor(rand() * 3); // 2 to 4 sub-boxes per cluster
+              const clusterBound = size * 0.8;
+              
+              for (let p = 0; p < subBoxCount; p++) {
+                // Keep the core box centered, offset the others slightly
+                const bOffset = new THREE.Vector3(0, 0, 0);
+                if (p > 0) {
+                  bOffset.set(
+                    (rand() - 0.5) * clusterBound,
+                    (rand() - 0.2) * clusterBound * 0.8, // bias slightly upwards
+                    (rand() - 0.5) * clusterBound
+                  );
+                }
+                
+                // Vary sub-box size - making them chunky, solid blocks
+                const bSize = p === 0 ? size * 1.4 : size * (0.7 + rand() * 0.5);
+                const s = bSize / 2;
+                
+                const boxFaces = [
+                  { verts: [[-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s]], norm: [0,0,1] }, // front
+                  { verts: [[s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s]], norm: [0,0,-1] }, // back
+                  { verts: [[-s,s,s], [s,s,s], [s,s,-s], [-s,s,-s]], norm: [0,1,0] }, // top
+                  { verts: [[-s,-s,-s], [s,-s,-s], [s,-s,s], [-s,-s,s]], norm: [0,-1,0] }, // bottom
+                  { verts: [[s,-s,s], [s,-s,-s], [s,s,-s], [s,s,s]], norm: [1,0,0] }, // right
+                  { verts: [[-s,-s,-s], [-s,-s,s], [-s,s,s], [-s,s,-s]], norm: [-1,0,0] } // left
+                ];
+
+                boxFaces.forEach(face => {
+                  const baseIdx = vertices.length / 3;
+                  
+                  face.verts.forEach(vArr => {
+                    const localV = new THREE.Vector3(vArr[0], vArr[1], vArr[2]);
+                    const finalPos = leafPos.clone().add(bOffset).add(localV);
+                    vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                    normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                    colors.push(jitterCol.r, jitterCol.g, jitterCol.b);
+                  });
+                  
+                  indices.push(baseIdx, baseIdx + 1, baseIdx + 2);
+                  indices.push(baseIdx, baseIdx + 2, baseIdx + 3);
+                });
+              }
+
+              // Add fruit if enabled
+              if (foliageFruit && rand() > 0.6) {
+                const fruitCount = 1 + Math.floor(rand() * 2);
+                for (let fc = 0; fc < fruitCount; fc++) {
+                  const fOffset = new THREE.Vector3((rand() - 0.5) * size, -size * 0.5, (rand() - 0.5) * size);
+                  const fruitSize = size * 0.4;
+                  const s = fruitSize / 2;
+                  const fruitColor = new THREE.Color(0xff2211);
+                  
+                  const boxFaces = [
+                    { verts: [[-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s]], norm: [0,0,1] },
+                    { verts: [[s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s]], norm: [0,0,-1] },
+                    { verts: [[-s,s,s], [s,s,s], [s,s,-s], [-s,s,-s]], norm: [0,1,0] },
+                    { verts: [[-s,-s,-s], [s,-s,-s], [s,-s,s], [-s,-s,s]], norm: [0,-1,0] },
+                    { verts: [[s,-s,s], [s,-s,-s], [s,s,-s], [s,s,s]], norm: [1,0,0] },
+                    { verts: [[-s,-s,-s], [-s,-s,s], [-s,s,s], [-s,s,-s]], norm: [-1,0,0] }
+                  ];
+
+                  boxFaces.forEach(face => {
+                    const baseIdx = vertices.length / 3;
+                    face.verts.forEach(vArr => {
+                      const localV = new THREE.Vector3(vArr[0], vArr[1], vArr[2]);
+                      const finalPos = leafPos.clone().add(fOffset).add(localV);
+                      vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                      normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                      colors.push(fruitColor.r, fruitColor.g, fruitColor.b);
+                    });
+                    indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+                  });
+                }
+              }
+
+              // Add snow if enabled
+              if (foliageSnow) {
+                const snowSize = size * 1.8;
+                const s = snowSize / 2;
+                const snowColor = new THREE.Color(0xffffff);
+                const sOffset = new THREE.Vector3(0, size * 0.6, 0); // rest on top
+                
+                const boxFaces = [
+                  { verts: [[-s,s,s], [s,s,s], [s,s,-s], [-s,s,-s]], norm: [0,1,0] }, // top face only
+                  { verts: [[-s,-s,s], [s,-s,s], [s,s,s], [-s,s,s]], norm: [0,0,1] }, // front
+                  { verts: [[s,-s,-s], [-s,-s,-s], [-s,s,-s], [s,s,-s]], norm: [0,0,-1] }, // back
+                  { verts: [[s,-s,s], [s,-s,-s], [s,s,-s], [s,s,s]], norm: [1,0,0] }, // right
+                  { verts: [[-s,-s,-s], [-s,-s,s], [-s,s,s], [-s,s,-s]], norm: [-1,0,0] } // left
+                ];
+
+                boxFaces.forEach(face => {
+                  const baseIdx = vertices.length / 3;
+                  face.verts.forEach((vArr, vi) => {
+                    // flatten bottom vertices to make a cap
+                    const y = (vi < 2 && face.norm[1] !== 1) ? -s/4 : s/2; 
+                    const localV = new THREE.Vector3(vArr[0], y, vArr[2]);
+                    const finalPos = leafPos.clone().add(sOffset).add(localV);
+                    vertices.push(finalPos.x, finalPos.y, finalPos.z);
+                    normals.push(face.norm[0], face.norm[1], face.norm[2]);
+                    colors.push(snowColor.r, snowColor.g, snowColor.b);
+                  });
+                  indices.push(baseIdx, baseIdx + 1, baseIdx + 2, baseIdx, baseIdx + 2, baseIdx + 3);
+                });
+              }
+
+            } else {
+              // Standard Quads
+              const p1 = leafPos.clone().add(lSide.clone().multiplyScalar(-size)).add(lPerp.clone().multiplyScalar(-size));
+              const p2 = leafPos.clone().add(lSide.clone().multiplyScalar(size)).add(lPerp.clone().multiplyScalar(-size));
+              const p3 = leafPos.clone().add(lSide.clone().multiplyScalar(size)).add(lPerp.clone().multiplyScalar(size));
+              const p4 = leafPos.clone().add(lSide.clone().multiplyScalar(-size)).add(lPerp.clone().multiplyScalar(size));
+
+              vertices.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z, p3.x, p3.y, p3.z, p4.x, p4.y, p4.z);
+              
+              const n = lDir;
+              normals.push(n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z, n.x, n.y, n.z);
+              colors.push(jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b);
+              
+              indices.push(leafIdx, leafIdx + 1, leafIdx + 2);
+              indices.push(leafIdx, leafIdx + 2, leafIdx + 3);
+
+              if (foliageCross) {
+                const crossIdx = vertices.length / 3;
+                const c_p1 = leafPos.clone().add(lDir.clone().multiplyScalar(-size)).add(lPerp.clone().multiplyScalar(-size));
+                const c_p2 = leafPos.clone().add(lDir.clone().multiplyScalar(size)).add(lPerp.clone().multiplyScalar(-size));
+                const c_p3 = leafPos.clone().add(lDir.clone().multiplyScalar(size)).add(lPerp.clone().multiplyScalar(size));
+                const c_p4 = leafPos.clone().add(lDir.clone().multiplyScalar(-size)).add(lPerp.clone().multiplyScalar(size));
+
+                vertices.push(c_p1.x, c_p1.y, c_p1.z, c_p2.x, c_p2.y, c_p2.z, c_p3.x, c_p3.y, c_p3.z, c_p4.x, c_p4.y, c_p4.z);
+                normals.push(lSide.x, lSide.y, lSide.z, lSide.x, lSide.y, lSide.z, lSide.x, lSide.y, lSide.z, lSide.x, lSide.y, lSide.z);
+                colors.push(jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b, jitterCol.r, jitterCol.g, jitterCol.b);
+
+                indices.push(crossIdx, crossIdx + 1, crossIdx + 2);
+                indices.push(crossIdx, crossIdx + 2, crossIdx + 3);
+              }
+            }
+          }
+        }
+        return;
+      }
+
+      for (let i = 0; i < branchFactor; i++) {
+        const nextDir = gnarledDir.clone();
+        const angleVar = (rand() - 0.5) * randomness;
+        const spreadVar = (rand() - 0.5) * randomness * 2;
+        const spreadRay = perp1.clone().applyAxisAngle(axis, (i / branchFactor) * Math.PI * 2 + spreadVar);
+        
+        let childLength = length * (0.6 + rand() * 0.2);
+        let childThickness = thickness * taper;
+        
+        // Apical dominance: The first branch acts as a leader branch, bending less and staying thicker
+        if (i === 0 && branchFactor > 1 && rand() > 0.3) {
+          nextDir.applyAxisAngle(spreadRay, (angle + angleVar) * 0.4);
+          childLength = length * (0.8 + rand() * 0.2);
+          childThickness = thickness * (taper + 0.1);
+        } else {
+          nextDir.applyAxisAngle(spreadRay, angle + angleVar);
+        }
+        
+        // Phototropism: branches tend to curl upwards
+        const upwardBias = 0.15 * (1.0 - (currentLevel - 1) / levels);
+        if (upwardBias > 0) {
+          nextDir.lerp(new THREE.Vector3(0, 1, 0), upwardBias).normalize();
+        }
+
+        addBranch(end, nextDir, childLength, childThickness, currentLevel - 1);
+      }
+    };
+
+    // Generate multiple trees
+    for (let t = 0; t < count; t++) {
+      let offsetX = 0;
+      let offsetZ = 0;
+
+      if (distribution === 'random') {
+        offsetX = (rand() - 0.5) * spread;
+        offsetZ = (rand() - 0.5) * spread;
+      } else if (distribution === 'grid') {
+        const side = Math.ceil(Math.sqrt(count));
+        const col = t % side;
+        const row = Math.floor(t / side);
+        offsetX = (col / (side - 1 || 1) - 0.5) * spread;
+        offsetZ = (row / (side - 1 || 1) - 0.5) * spread;
+      } else if (distribution === 'circle') {
+        const theta = (t / count) * Math.PI * 2;
+        const radius = spread * 0.5;
+        offsetX = Math.cos(theta) * radius;
+        offsetZ = Math.sin(theta) * radius;
+      }
+
+      const basePos = new THREE.Vector3(offsetX, 0, offsetZ);
+      const treeHeight = height * (0.8 + rand() * 0.4);
+      const treeThickness = trunkThickness * (0.9 + rand() * 0.2);
+      addBranch(basePos, new THREE.Vector3(0, 1, 0), treeHeight * 0.4, treeThickness, levels);
+    }
+
+    return {
+      vertices: new Float32Array(vertices),
+      indices: new Uint32Array(indices),
+      normals: new Float32Array(normals),
+      colors: new Float32Array(colors)
+    };
+  }, [levels, height, branchFactor, angle, seed, foliage, foliageSize, foliageDensity, foliageOffset, foliageCross, foliageJitter, foliageType, foliageFruit, foliageSnow, gnarl, distribution, count, spread, bCol, fCol, trunkThickness, taper, randomness]);
+
+  const geom = useMemo(() => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(geometryData.vertices, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(geometryData.normals, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(geometryData.colors, 3));
+    geometry.setIndex(new THREE.BufferAttribute(geometryData.indices, 1));
+    geometry.computeBoundingSphere();
+    return geometry;
+  }, [geometryData]);
+
+  useEffect(() => {
+    return () => {
+      geom.dispose();
+    };
+  }, [geom]);
+
+  return <primitive object={geom} attach="geometry" />;
 }

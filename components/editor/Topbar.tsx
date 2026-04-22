@@ -1,7 +1,7 @@
 'use client';
 
 import { useEditorStore } from '@/store/useEditorStore';
-import { MousePointer2, Move, RotateCcw, Scaling, Trash2, Download, Upload, ChevronDown } from 'lucide-react';
+import { MousePointer2, Move, RotateCcw, Scaling, Trash2, Download, Upload, ChevronDown, Undo2, Redo2 } from 'lucide-react';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 export function Topbar() {
-  const { transformMode, setTransformMode, clearScene, addImportedObject, editMode, setEditMode, selectVertex, selectFace } = useEditorStore();
+  const { transformMode, setTransformMode, clearScene, addImportedObject, editMode, setEditMode, selectVertex, selectFace, undo, redo, past, future } = useEditorStore();
   const isMobile = useIsMobile();
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -150,6 +150,25 @@ export function Topbar() {
               icon={<Scaling size={14} />} 
               tooltip="Scale (S)" 
             />
+
+            <div className="w-[1px] h-6 bg-border-dim mx-1 mt-1"></div>
+
+            <button
+              onClick={undo}
+              disabled={past.length === 0}
+              title="Undo (Ctrl+Z)"
+              className={`p-2 w-8 h-8 flex items-center justify-center text-[12px] rounded-[4px] border border-border-dim bg-[#252525] transition-colors ${past.length > 0 ? 'text-text-main hover:text-white hover:border-text-dim' : 'text-text-dim/30 cursor-not-allowed hidden'}`}
+            >
+              <Undo2 size={14} />
+            </button>
+            <button
+              onClick={redo}
+              disabled={future.length === 0}
+              title="Redo (Ctrl+Y)"
+              className={`p-2 w-8 h-8 flex items-center justify-center text-[12px] rounded-[4px] border border-border-dim bg-[#252525] transition-colors ${future.length > 0 ? 'text-text-main hover:text-white hover:border-text-dim' : 'text-text-dim/30 cursor-not-allowed hidden'}`}
+            >
+              <Redo2 size={14} />
+            </button>
           </div>
         )}
       </div>

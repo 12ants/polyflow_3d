@@ -1,19 +1,43 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEditorStore } from '@/store/useEditorStore';
 import { Viewport } from './Viewport';
 import { Toolbar } from './Toolbar';
 import { PropertiesPanel } from './PropertiesPanel';
 import { Topbar } from './Topbar';
+import { SceneStatsOverlay } from './SceneStatsOverlay';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Menu, Settings2, X, Move, RotateCcw, Scaling } from 'lucide-react';
 
 export function EditorUI() {
-  const { transformMode, setTransformMode } = useEditorStore();
+  const { transformMode, setTransformMode, undo, redo, past, future } = useEditorStore();
   const isMobile = useIsMobile();
   const [showToolbar, setShowToolbar] = useState(false);
   const [showProps, setShowProps] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in an input
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        if (e.shiftKey) {
+          e.preventDefault();
+          redo();
+        } else {
+          e.preventDefault();
+          undo();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
 
   return (
     <div className="flex flex-col w-full h-full bg-app text-text-main font-sans overflow-hidden">
@@ -42,6 +66,7 @@ export function EditorUI() {
         
         {/* Center Viewport (3D Canvas) */}
         <div className="flex-1 relative viewport-bg overflow-hidden">
+          <SceneStatsOverlay />
           <Viewport />
           
           {/* Mobile Overlay Controls */}

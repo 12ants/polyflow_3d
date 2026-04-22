@@ -1,12 +1,35 @@
 'use client';
 
+import { useState, ReactNode } from 'react';
 import { useEditorStore } from '@/store/useEditorStore';
+import { ChevronDown, RefreshCcw } from 'lucide-react';
+
+function CollapsibleSection({ title, children, defaultOpen = true }: { title: string, children: ReactNode, defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className="border-b border-border-dim">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 bg-panel hover:bg-[#252525] transition-colors"
+      >
+        <div className="text-[10px] uppercase tracking-[1px] text-text-dim font-semibold">{title}</div>
+        <ChevronDown size={14} className={`text-text-dim transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+      </button>
+      {isOpen && (
+        <div className="p-4 pt-0">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function PropertiesPanel() {
   const { 
     objects, selectedId, selectObject, updateObject, 
     editMode, softSelectionEnabled, setSoftSelectionEnabled, 
-    softSelectionRadius, setSoftSelectionRadius 
+    softSelectionRadius, setSoftSelectionRadius,
+    gridColor, setGridColor, triggerCameraReset
   } = useEditorStore();
   
   const selectedObj = objects.find(o => o.id === selectedId);
@@ -31,9 +54,8 @@ export function PropertiesPanel() {
   return (
     <div className="flex flex-col flex-1">
       {/* Scene Tree */}
-      <div className="p-4 border-b border-border-dim">
-        <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Scene Tree</div>
-        <div className="flex flex-col gap-1">
+      <CollapsibleSection title="Scene Tree" defaultOpen={true}>
+        <div className="flex flex-col gap-1 -mt-2">
           {objects.length === 0 && <div className="text-[12px] text-text-dim px-3">Empty Scene</div>}
           {objects.map((obj) => (
             <div 
@@ -49,7 +71,7 @@ export function PropertiesPanel() {
             </div>
           ))}
         </div>
-      </div>
+      </CollapsibleSection>
 
       {(editMode === 'vertex' || editMode === 'edge') && selectedObj && (
          <div className="p-4 border-b border-border-dim">
@@ -88,46 +110,46 @@ export function PropertiesPanel() {
       {selectedObj ? (
         <>
           {/* Color Selector */}
-          <div className="p-4 border-b border-border-dim">
-            <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Appearance</div>
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#6366f1', 
-                  '#8b5cf6', '#ec4899', '#f8fafc', '#94a3b8', '#0f172a'
-                ].map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => updateObject(selectedObj.id, { color: c })}
-                    className={`w-5 h-5 rounded-sm border transition-all ${
-                      selectedObj.color.toLowerCase() === c.toLowerCase() 
-                        ? 'border-white scale-110 shadow-sm' 
-                        : 'border-white/10 hover:scale-105'
-                    }`}
-                    style={{ backgroundColor: c }}
-                    title={c}
-                  />
-                ))}
-                <div className="relative w-5 h-5 group">
-                  <div className="w-full h-full rounded-sm border border-white/20 bg-gradient-to-tr from-red-500 via-green-500 to-blue-500" />
-                  <input 
-                    type="color" 
-                    value={selectedObj.color}
-                    onChange={(e) => updateObject(selectedObj.id, { color: e.target.value })}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    title="Custom Color"
-                  />
+          {selectedObj.type !== 'tree' && (
+            <CollapsibleSection title="Appearance">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#6366f1', 
+                    '#8b5cf6', '#ec4899', '#f8fafc', '#94a3b8', '#0f172a'
+                  ].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => updateObject(selectedObj.id, { color: c })}
+                      className={`w-5 h-5 rounded-sm border transition-all ${
+                        selectedObj.color.toLowerCase() === c.toLowerCase() 
+                          ? 'border-white scale-110 shadow-sm' 
+                          : 'border-white/10 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: c }}
+                      title={c}
+                    />
+                  ))}
+                  <div className="relative w-5 h-5 group">
+                    <div className="w-full h-full rounded-sm border border-white/20 bg-gradient-to-tr from-red-500 via-green-500 to-blue-500" />
+                    <input 
+                      type="color" 
+                      value={selectedObj.color}
+                      onChange={(e) => updateObject(selectedObj.id, { color: e.target.value })}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      title="Custom Color"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between bg-[#1a1a1a] h-7 px-2 rounded border border-border-dim/30">
+                  <span className="text-[10px] font-mono text-text-dim uppercase">Hex code</span>
+                  <span className="text-[10px] font-mono text-accent uppercase select-all">{selectedObj.color}</span>
                 </div>
               </div>
-              <div className="flex items-center justify-between bg-[#1a1a1a] h-7 px-2 rounded border border-border-dim/30">
-                <span className="text-[10px] font-mono text-text-dim uppercase">Hex code</span>
-                <span className="text-[10px] font-mono text-accent uppercase select-all">{selectedObj.color}</span>
-              </div>
-            </div>
-          </div>
+            </CollapsibleSection>
+          )}
 
-          <div className="p-4 border-b border-border-dim">
-            <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Transform</div>
+          <CollapsibleSection title="Transform">
             
             <div className="flex flex-col gap-0">
               <VectorInputGroup 
@@ -170,30 +192,243 @@ export function PropertiesPanel() {
                 step={0.1}
               />
             </div>
-          </div>
+          </CollapsibleSection>
     
           {/* Procedural Generation Settings */}
           {selectedObj.type === 'terrain' && (
-             <div className="p-4 border-b border-border-dim">
-               <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Terrain Props</div>
+             <CollapsibleSection title="Terrain Props">
                <ParamSlider label="Subdivisions" objId={selectedObj.id} params={selectedObj.params} paramKey="segments" value={selectedObj.params?.segments || 16} min={1} max={128} step={1} />
                <ParamSlider label="Amplitude" objId={selectedObj.id} params={selectedObj.params} paramKey="amplitude" value={selectedObj.params?.amplitude || 1} min={0} max={10} step={0.1} />
                <ParamSlider label="Noise Scale" objId={selectedObj.id} params={selectedObj.params} paramKey="scale" value={selectedObj.params?.scale || 0.5} min={0.01} max={5} step={0.01} />
-             </div>
+             </CollapsibleSection>
           )}
           {selectedObj.type === 'torusKnot' && (
-             <div className="p-4 border-b border-border-dim">
-               <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Knot Props</div>
+             <CollapsibleSection title="Knot Props">
                <ParamSlider label="P (Windings)" objId={selectedObj.id} params={selectedObj.params} paramKey="p" value={selectedObj.params?.p || 2} min={1} max={20} step={1} />
                <ParamSlider label="Q (Turns)" objId={selectedObj.id} params={selectedObj.params} paramKey="q" value={selectedObj.params?.q || 3} min={1} max={20} step={1} />
                <ParamSlider label="Radius" objId={selectedObj.id} params={selectedObj.params} paramKey="radius" value={selectedObj.params?.radius || 0.5} min={0.1} max={5} step={0.1} />
                <ParamSlider label="Tube" objId={selectedObj.id} params={selectedObj.params} paramKey="tube" value={selectedObj.params?.tube || 0.15} min={0.01} max={2} step={0.01} />
-             </div>
+             </CollapsibleSection>
+          )}
+          {selectedObj.type === 'tree' && (
+             <CollapsibleSection title="Tree Props">
+               
+               <div className="mb-4">
+                 <div className="text-[11px] text-text-dim mb-2">Preset</div>
+                 <select 
+                   value={selectedObj.params?.preset || 'default'} 
+                   onChange={(e) => {
+                     const preset = e.target.value;
+                     let newParams = { ...selectedObj.params, preset };
+                     if (preset === 'oak') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 4, height: 3, branchFactor: 3, angle: 0.6, 
+                          foliageSize: 0.6, trunkThickness: 0.1, taper: 0.7, randomness: 0.3,
+                          branchColor: '#4d2d11', foliageColor: '#2d5a27'
+                        };
+                     } else if (preset === 'pine') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 5, height: 5, branchFactor: 2, angle: 0.3, 
+                          foliageSize: 0.4, trunkThickness: 0.08, taper: 0.5, randomness: 0.1,
+                          branchColor: '#2b1b0e', foliageColor: '#1d3a1a'
+                        };
+                     } else if (preset === 'baobab') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 3, height: 2, branchFactor: 4, angle: 0.8, 
+                          foliageSize: 0.3, trunkThickness: 0.3, taper: 0.8, randomness: 0.2,
+                          branchColor: '#3d2b1f', foliageColor: '#4d6d3d'
+                        };
+                     } else if (preset === 'birch') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 4, height: 4, branchFactor: 2, angle: 0.4, 
+                          foliageSize: 0.4, trunkThickness: 0.05, taper: 0.7, randomness: 0.1,
+                          branchColor: '#f0f0f0', foliageColor: '#7ba05b'
+                        };
+                     } else if (preset === 'willow') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 4, height: 3, branchFactor: 3, angle: 1.2, 
+                          foliageSize: 0.5, trunkThickness: 0.07, taper: 0.75, randomness: 0.4,
+                          branchColor: '#36302a', foliageColor: '#a8b87d', foliageAnimate: true
+                        };
+                     } else if (preset === 'apple') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 4, height: 2.5, branchFactor: 3, angle: 0.7, 
+                          foliageSize: 0.5, trunkThickness: 0.1, taper: 0.75, randomness: 0.2,
+                          branchColor: '#4d2d11', foliageColor: '#4e7a27', foliageFruit: true, foliageType: 'cloud'
+                        };
+                     } else if (preset === 'winter_pine') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 5, height: 5, branchFactor: 2, angle: 0.3, 
+                          foliageSize: 0.4, trunkThickness: 0.08, taper: 0.5, randomness: 0.1,
+                          branchColor: '#2b1b0e', foliageColor: '#1d3a1a', foliageSnow: true
+                        };
+                     } else if (preset === 'sakura') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 4, height: 3, branchFactor: 3, angle: 0.7, 
+                          foliageSize: 0.6, trunkThickness: 0.1, taper: 0.7, randomness: 0.3,
+                          branchColor: '#4d3011', foliageColor: '#ffb7c5', foliageType: 'cloud', foliageDensity: 1.5, foliageAnimate: true
+                        };
+                     } else if (preset === 'palm') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 1, height: 6, branchFactor: 8, angle: 0.7, 
+                          foliageSize: 1.2, trunkThickness: 0.15, taper: 0.9, randomness: 0.05,
+                          branchColor: '#5c4033', foliageColor: '#458b00', foliageCross: true, foliageDensity: 1.5, foliageOffset: 0.5
+                        };
+                     } else if (preset === 'default') {
+                        newParams = { 
+                          ...newParams, 
+                          levels: 3, height: 2, branchFactor: 2, angle: 0.5, 
+                          foliageSize: 0.5, trunkThickness: 0.05, taper: 0.7, randomness: 0.2,
+                          branchColor: '#4d2d11', foliageColor: '#2d5a27'
+                        };
+                     }
+                     updateObject(selectedObj.id, { params: newParams });
+                   }}
+                   className="w-full bg-[#252525] border border-border-dim text-white text-[12px] p-2 rounded-[4px] outline-none focus:border-accent"
+                 >
+                   <option value="default">Default</option>
+                   <option value="oak">Oak (Spread)</option>
+                   <option value="pine">Pine (Tall)</option>
+                   <option value="baobab">Baobab (Thick)</option>
+                   <option value="birch">Birch (White)</option>
+                   <option value="willow">Willow (Drooping)</option>
+                   <option value="apple">Apple Tree (Fruit)</option>
+                   <option value="winter_pine">Winter Pine (Snow)</option>
+                   <option value="sakura">Sakura (Cloudy)</option>
+                   <option value="palm">Palm (Tropical)</option>
+                 </select>
+               </div>
+
+               <div className="space-y-4 mb-4 pt-2 border-t border-border-dim/50">
+                 <div className="text-[10px] uppercase tracking-[1px] text-text-dim font-semibold mb-2">Colors</div>
+                 <ParamColor label="Branch" objId={selectedObj.id} params={selectedObj.params} paramKey="branchColor" value={selectedObj.params?.branchColor || '#4d2d11'} />
+                 <ParamColor label="Foliage" objId={selectedObj.id} params={selectedObj.params} paramKey="foliageColor" value={selectedObj.params?.foliageColor || '#2d5a27'} />
+               </div>
+
+               <div className="space-y-4 mb-4 pt-2 border-t border-border-dim/50">
+                 <div className="text-[10px] uppercase tracking-[1px] text-text-dim font-semibold mb-2">Population</div>
+                 <ParamSlider label="Tree Count" objId={selectedObj.id} params={selectedObj.params} paramKey="count" value={selectedObj.params?.count || 1} min={1} max={50} step={1} />
+                 <ParamSlider label="Spread Radius" objId={selectedObj.id} params={selectedObj.params} paramKey="spread" value={selectedObj.params?.spread || 2} min={0} max={20} step={0.5} />
+                 <div className="mb-2">
+                   <div className="text-[11px] text-text-dim mb-2">Forest Layout</div>
+                   <select 
+                     value={selectedObj.params?.distribution || 'random'} 
+                     onChange={(e) => updateObject(selectedObj.id, { params: { ...selectedObj.params, distribution: e.target.value } })}
+                     className="w-full bg-[#252525] border border-border-dim text-white text-[12px] p-2 rounded-[4px] outline-none focus:border-accent"
+                   >
+                     <option value="random">Random Clusters</option>
+                     <option value="grid">Ordered Grid</option>
+                     <option value="circle">Circular Grove</option>
+                   </select>
+                 </div>
+               </div>
+
+               <div className="space-y-4 mb-4 pt-2 border-t border-border-dim/50">
+                 <div className="text-[10px] uppercase tracking-[1px] text-text-dim font-semibold mb-2">Structure</div>
+                 <ParamSlider label="Complexity (Levels)" objId={selectedObj.id} params={selectedObj.params} paramKey="levels" value={selectedObj.params?.levels || 3} min={1} max={6} step={1} />
+                 <ParamSlider label="Initial Height" objId={selectedObj.id} params={selectedObj.params} paramKey="height" value={selectedObj.params?.height || 2} min={0.5} max={10} step={0.1} />
+                 <ParamSlider label="Branch Angle" objId={selectedObj.id} params={selectedObj.params} paramKey="angle" value={selectedObj.params?.angle || 0.5} min={0.1} max={Math.PI / 2} step={0.05} />
+                 <ParamSlider label="Gnarliness" objId={selectedObj.id} params={selectedObj.params} paramKey="gnarl" value={selectedObj.params?.gnarl || 0} min={0} max={1} step={0.05} />
+                 <ParamSlider label="Branch Factor" objId={selectedObj.id} params={selectedObj.params} paramKey="branchFactor" value={selectedObj.params?.branchFactor || 2} min={1} max={8} step={1} />
+                 <ParamSlider label="Trunk Thickness" objId={selectedObj.id} params={selectedObj.params} paramKey="trunkThickness" value={selectedObj.params?.trunkThickness || 0.05} min={0.01} max={0.5} step={0.01} />
+                 <ParamSlider label="Taper Ratio" objId={selectedObj.id} params={selectedObj.params} paramKey="taper" value={selectedObj.params?.taper || 0.7} min={0.2} max={0.9} step={0.05} />
+                 <ParamSlider label="Randomness" objId={selectedObj.id} params={selectedObj.params} paramKey="randomness" value={selectedObj.params?.randomness || 0.2} min={0} max={1} step={0.05} />
+                 <ParamSlider label="Seed" objId={selectedObj.id} params={selectedObj.params} paramKey="seed" value={selectedObj.params?.seed || 123} min={0} max={10000} step={1} />
+               </div>
+               
+               <div className="space-y-4 pt-2 border-t border-border-dim/50">
+                 <div className="text-[10px] uppercase tracking-[1px] text-text-dim font-semibold mb-2">Foliage</div>
+                 <div className="flex items-center justify-between mb-2">
+                   <span className="text-[11px] text-text-dim">Enabled</span>
+                   <button 
+                     onClick={() => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliage: !selectedObj.params?.foliage } })}
+                     className={`w-8 h-4 rounded-full relative transition-colors ${selectedObj.params?.foliage ? 'bg-accent' : 'bg-[#333]'}`}
+                   >
+                     <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${selectedObj.params?.foliage ? 'right-0.5' : 'left-0.5'}`} />
+                   </button>
+                 </div>
+                 
+                 {selectedObj.params?.foliage && (
+                   <>
+                     <div className="mb-4">
+                       <div className="text-[11px] text-text-dim mb-2">Foliage Style</div>
+                       <select 
+                         value={selectedObj.params?.foliageType || 'quad'} 
+                         onChange={(e) => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliageType: e.target.value } })}
+                         className="w-full bg-[#252525] border border-border-dim text-white text-[12px] p-2 rounded-[4px] outline-none focus:border-accent"
+                       >
+                         <option value="quad">Quad (Sharp)</option>
+                         <option value="cloud">Cloud (Soft)</option>
+                         <option value="box">Voxel (Boxy)</option>
+                         <option value="realistic">Realistic (Volume)</option>
+                       </select>
+                     </div>
+                     <ParamSlider label="Size" objId={selectedObj.id} params={selectedObj.params} paramKey="foliageSize" value={selectedObj.params?.foliageSize || 0.5} min={0.1} max={3} step={0.1} />
+                     <ParamSlider label="Density" objId={selectedObj.id} params={selectedObj.params} paramKey="foliageDensity" value={selectedObj.params?.foliageDensity || 1} min={0.1} max={5} step={0.1} />
+                     <ParamSlider label="Leaf Position Offset" objId={selectedObj.id} params={selectedObj.params} paramKey="foliageOffset" value={selectedObj.params?.foliageOffset || 0} min={-2} max={2} step={0.1} />
+                     <ParamSlider label="Color Variance" objId={selectedObj.id} params={selectedObj.params} paramKey="foliageJitter" value={selectedObj.params?.foliageJitter || 0.2} min={0} max={1} step={0.05} />
+                     
+                     <div className="space-y-3 py-2">
+                       <div className="flex items-center justify-between">
+                         <span className="text-[11px] text-text-dim">Fruit Bearing</span>
+                         <button 
+                           onClick={() => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliageFruit: !selectedObj.params?.foliageFruit } })}
+                           className={`w-8 h-4 rounded-full relative transition-colors ${selectedObj.params?.foliageFruit ? 'bg-accent' : 'bg-[#333]'}`}
+                         >
+                           <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${selectedObj.params?.foliageFruit ? 'right-0.5' : 'left-0.5'}`} />
+                         </button>
+                       </div>
+                       
+                       <div className="flex items-center justify-between">
+                         <span className="text-[11px] text-text-dim">Snow Covered</span>
+                         <button 
+                           onClick={() => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliageSnow: !selectedObj.params?.foliageSnow } })}
+                           className={`w-8 h-4 rounded-full relative transition-colors ${selectedObj.params?.foliageSnow ? 'bg-white' : 'bg-[#333]'}`}
+                         >
+                           <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${selectedObj.params?.foliageSnow ? 'right-0.5 bg-accent shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'left-0.5'}`} />
+                         </button>
+                       </div>
+
+                       <div className="flex items-center justify-between">
+                         <span className="text-[11px] text-text-dim">Breeze Animation</span>
+                         <button 
+                           onClick={() => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliageAnimate: !selectedObj.params?.foliageAnimate } })}
+                           className={`w-8 h-4 rounded-full relative transition-colors ${selectedObj.params?.foliageAnimate ? 'bg-accent' : 'bg-[#333]'}`}
+                         >
+                           <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${selectedObj.params?.foliageAnimate ? 'right-0.5' : 'left-0.5'}`} />
+                         </button>
+                       </div>
+                       {selectedObj.params?.foliageAnimate && (
+                         <ParamSlider label="Sway Intensity" objId={selectedObj.id} params={selectedObj.params} paramKey="windSpeed" value={selectedObj.params?.windSpeed || 1.0} min={0} max={5} step={0.1} />
+                       )}
+
+                       <div className="flex items-center justify-between">
+                         <span className="text-[11px] text-text-dim">Volumetric (Cross-Quad)</span>
+                         <button 
+                           onClick={() => updateObject(selectedObj.id, { params: { ...selectedObj.params, foliageCross: !selectedObj.params?.foliageCross } })}
+                           className={`w-8 h-4 rounded-full relative transition-colors ${selectedObj.params?.foliageCross ? 'bg-accent' : 'bg-[#333]'}`}
+                         >
+                           <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${selectedObj.params?.foliageCross ? 'right-0.5' : 'left-0.5'}`} />
+                         </button>
+                       </div>
+                     </div>
+                   </>
+                 )}
+               </div>
+             </CollapsibleSection>
           )}
     
           {selectedObj.type !== 'imported' && (
-            <div className="p-4 flex flex-col flex-1">
-              <div className="text-[10px] uppercase tracking-[1px] text-text-dim mb-3 font-semibold">Material</div>
+            <CollapsibleSection title="Material">
               
               <select 
                 value={selectedObj.materialType || 'solid'} 
@@ -264,12 +499,41 @@ export function PropertiesPanel() {
                   />
                 </div>
               </div>
-            </div>
+            </CollapsibleSection>
           )}
         </>
       ) : (
-        <div className="flex-1 flex items-center justify-center text-text-dim text-[12px] p-4 text-center">
-          Select an object to edit its properties
+        <div className="flex-1 flex flex-col">
+          <CollapsibleSection title="Scene Settings">
+            <div className="space-y-4">
+              <div>
+                <div className="text-[11px] text-text-dim mb-2">Grid Color</div>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="color" 
+                    value={gridColor}
+                    onChange={(e) => setGridColor(e.target.value)}
+                    className="w-8 h-8 rounded border-none p-0 cursor-pointer bg-transparent"
+                  />
+                  <span className="text-[11px] font-mono text-white">{gridColor}</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[11px] text-text-dim mb-2">Camera</div>
+                <button 
+                  onClick={triggerCameraReset}
+                  className="w-full flex items-center justify-center gap-2 bg-[#252525] hover:bg-[#333] text-white text-[11px] uppercase tracking-wider py-2 rounded transition-colors border border-border-dim/50"
+                >
+                  <RefreshCcw size={14} />
+                  Reset Camera
+                </button>
+              </div>
+            </div>
+          </CollapsibleSection>
+          <div className="flex-1 flex items-center justify-center text-text-dim text-[12px] p-4 text-center mt-10">
+            Select an object to edit its properties
+          </div>
         </div>
       )}
     </div>
@@ -301,6 +565,30 @@ function ParamSlider({ label, objId, paramKey, params, isMaterialParam, value, m
         }}
         className="w-full accent-accent bg-[#333] h-1.5 rounded-full appearance-none cursor-pointer"
       />
+    </div>
+  );
+}
+
+function ParamColor({ label, objId, paramKey, params, value }: any) {
+  const { updateObject } = useEditorStore();
+
+  return (
+    <div className="flex items-center justify-between">
+      <label className="text-[11px] text-text-dim">{label}</label>
+      <div className="flex items-center gap-2">
+        <input 
+          type="color"
+          value={value}
+          onChange={(e) => updateObject(objId, { params: { ...params, [paramKey]: e.target.value } })}
+          className="w-6 h-6 rounded overflow-hidden border-none p-0 cursor-pointer bg-transparent"
+        />
+        <input 
+          type="text" 
+          value={value} 
+          onChange={(e) => updateObject(objId, { params: { ...params, [paramKey]: e.target.value } })}
+          className="bg-app border border-border-dim text-white text-[10px] font-mono p-1 w-16 rounded outline-none focus:border-accent"
+        />
+      </div>
     </div>
   );
 }
